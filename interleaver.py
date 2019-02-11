@@ -11,11 +11,11 @@ vid2_offset = 0
 
 def check_safe():
   if any([ os.path.exists(f) for f in [ "beats_out.mp4", "bars_out.mp4" ] ]):
-    print "exiting because beats_out.mp4 or bars_out.mp4 exists"
+    print("exiting because beats_out.mp4 or bars_out.mp4 exists")
     sys.exit(1)
 
 def load_files():
-  print "Loading files..."
+  print("Loading files...")
   song = AudioFileClip("hyuna.mp3")
   clip1 = VideoFileClip("hyuna1.mp4")
   clip1 = clip1.subclip(vid1_offset, song.duration + vid1_offset)
@@ -24,11 +24,11 @@ def load_files():
   info = json.load(file("hyuna.json"))
   bars = info['bars']
   beats = info['beats']
-  print "Loaded."
+  print("Loaded.")
   return song, clip1, clip2, bars, beats
 
 def generate_bars(clip1, clip2, song, bars):
-  print "Generating bars..."
+  print("Generating bars...")
   bar_times = []
   clip1_bars = []
   clip2_bars = []
@@ -41,19 +41,19 @@ def generate_bars(clip1, clip2, song, bars):
   out_bars = []
   for i, clips in tqdm(enumerate(zip(clip1_bars, clip2_bars))):
     out_bars.append(clips[i % 2])
-  print "Generated."
+  print("Generated.")
 
-  print "Generating bars video..."
+  print("Generating bars video...")
   out_bars_clip = concatenate_videoclips(out_bars)
   out_bars_clip = out_bars_clip.set_audio(song)
-  print "Generated."
+  print("Generated.")
 
-  print "Writing bars video..."
+  print("Writing bars video...")
   out_bars_clip.write_videofile("bars_out.mp4")
-  print "Generated."
+  print("Generated.")
 
 def generate_beats(clip1, clip2, song, beats):
-  print "Generating beats..."
+  print("Generating beats...")
   beat_times = []
   clip1_beats = []
   clip2_beats = []
@@ -66,16 +66,16 @@ def generate_beats(clip1, clip2, song, beats):
   out_beats = []
   for i, clips in tqdm(enumerate(zip(clip1_beats, clip2_beats))):
     out_beats.append(clips[i % 2])
-  print "Generated."
+  print("Generated.")
 
-  print "Generating beats video..."
+  print("Generating beats video...")
   out_beats_clip = concatenate_videoclips(out_beats)
   out_beats_clip = out_beats_clip.set_audio(song)
-  print "Generated."
+  print("Generated.")
 
-  print "Writing beats video..."
+  print("Writing beats video...")
   out_beats_clip.write_videofile("beats_out.mp4")
-  print "Generated."
+  print("Generated.")
 
 check_safe()
 song, clip1, clip2, bars, beats = load_files()
