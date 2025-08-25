@@ -1,59 +1,114 @@
-from moviepy import VideoFileClip, AudioFileClip, concatenate_videoclips
+import hashlib
+import math
+import random
+from typing import Iterable, Optional
+
+import moviepy as mp
 from tqdm import tqdm
-import json
-import os.path
-import sys
-from collections import namedtuple
-
-# change these
-offsets = {"vid1.mp4": 1.2, "vid2.mp4": 0, "vid3.mp4": 1.2, "vid4.mp4": 1.1}
-jsonfilename = "data.json"
-songfilename = "song.mp4"
 
 
-def check_safe():
-    if any([os.path.exists(f) for f in ["beatsmix.mp4", "barsmix.mp4"]]):
-        print("exiting because beatsmix.mp4 or barsmix.mp4 exists")
-        sys.exit(1)
+def _init(
+    filename: str,
+    bar_length: float,
+    offset: float = 0,
+) -> tuple[mp.VideoClip, Iterable[tuple[float, float]]]:
+    video_clip = mp.VideoFileClip(filename)
+
+    def segment_gen():
+        start = offset
+        while start < video_clip.duration:
+            end = min(start + bar_length, video_clip.duration)
+            yield (start, end)
+            start = end
+
+    return (video_clip, segment_gen())
 
 
-def load_files(offsets=offsets, jsonfilename=jsonfilename, songfilename=songfilename):
-    print("Loading files...")
-    song = AudioFileClip(songfilename)
-    clips = [VideoFileClip(name).subclipped(offset) for name, offset in offsets.items()]
-    info = json.load(open(jsonfilename))
-    bars = info["bars"]
-    beats = info["beats"]
-    print("Loaded.")
-    return clips, song, bars, beats
+def cut_and_save(
+    filename: str,
+    bar_length: float,
+    offset: float = 0,
+):
+    (video_clip, segments_gen) = _init(filename, bar_length, offset)
+
+    segments = list(segments_gen)
+
+    with tqdm(total=len(segments)) as tqdm_outer:
+        for i, segment in tqdm(enumerate(segments)):
+            clip = video_clip.subclipped(*segment)
+            clip.write_videofile(
+                f"clip{i:02d}.webm",
+                codec="libvpx",
+                fps=15,
+                preset="ultrafast",
+                ffmpeg_params=["-aspect", "9:16", "-loglevel", "error"],
+            )
+            tqdm_outer.update(1)
 
 
-Segment = namedtuple("Segment", ["start", "end"])
+def interleave(
+    filename: str,
+    beat_length: float,
+    cut_count: int,
+    offset: float = 0,
+    audio_offset_beats: float = 0,
+    whitelist: list[int] = [],
+    target_length: Optional[int] = None,
+):
+    cut_length = beat_length * cut_count
+    (video_clip, segments_gen) = _init(filename, cut_length, offset)
+    audio_clip = video_clip.audio
+    if not audio_clip:
+        raise Exception("No audio on video")
 
+    segments = list(segments_gen)
 
-def unraw(seq):
-    for json_seg in seq:
-        start, duration = json_seg["start"], json_seg["duration"]
-        yield Segment(start, start + duration)
+    segments_needed_num = (
+        math.ceil(target_length / cut_length) if target_length else len(segments)
+    )
 
-
-def generate(clips, segments, song, name):
-    print(f"Generating {name}...")
-    clips = [
-        clips[i % len(clips)].subclip(*segment)
-        for i, segment in tqdm(enumerate(segments))
+    segments_whitelisted = [
+        seg for (_i, seg) in filter((lambda e: e[0] in whitelist), enumerate(segments))
     ]
-    print(f"Generated. Generating {name} video...")
-    clip = concatenate_videoclips(clips)
-    clip = clip.with_audio(song)
-    print(f"Generated. Writing {name} video...")
-    clip.write_videofile(f"{name}mix.mp4")
-    print("Generated.")
+    segments_sample = random.sample(segments_whitelisted, segments_needed_num)
+    subclips = [video_clip.subclipped(*seg) for seg in segments_sample]
+    clip_concatenated = mp.concatenate_videoclips(subclips)
+
+    audio_offset = offset + audio_offset_beats * beat_length
+    clip_with_audio = clip_concatenated.with_audio(
+        audio_clip.subclipped(audio_offset, audio_offset + clip_concatenated.duration)
+    )
+
+    segments_hash = hashlib.sha256(repr(segments_sample).encode()).hexdigest()
+
+    clip_with_audio.write_videofile(
+        f"mixed-{cut_count}-{segments_hash}.webm",
+        codec="libvpx",
+        preset="ultrafast",
+        ffmpeg_params=["-aspect", "9:16", "-loglevel", "error"],
+    )
 
 
 if __name__ == "__main__":
-    check_safe()
-    clips, song, raw_bars, raw_beats = load_files()
-    bars, beats = unraw(raw_bars), unraw(raw_beats)
-    generate(clips, bars, song, "bars")
-    generate(clips, beats, song, "beats")
+    tempo_bpm = 83
+    bar_count = 6
+
+    beat_length = 60 / tempo_bpm
+    bar_length = beat_length * bar_count
+
+    audio_offset_beats = 3 * 6
+
+    whitelist_bars = list(set(range(2, 23)).difference(set([16])))
+    whitelist = []
+
+    cut_count = 4
+
+    interleave(
+        "./your-file.mp4",
+        beat_length=beat_length,
+        cut_count=cut_count,
+        offset=0.77,
+        audio_offset_beats=audio_offset_beats,
+        whitelist=whitelist,
+        target_length=30,
+    )
